@@ -1,5 +1,5 @@
 import type { DatabaseService } from "../../database/database.service.js";
-import { notFound } from "../../common/exceptions/graphql.exception.js";
+import { badUserInput, notFound } from "../../common/exceptions/graphql.exception.js";
 import type { ChangeKind, PubSubService } from "../../graphql/pubsub.service.js";
 import type {
   CreateReleaseDto,
@@ -12,6 +12,21 @@ import type { ReleaseStatusService } from "./release-status.service.js";
 import type { ReleasesRepository } from "../repository/releases.repository.js";
 import { compareStepKeys, stepLabel } from "../steps.constants.js";
 
+const DUPLICATE_NAME = "A release with this name already exists.";
+
+function duplicateReleaseName() {
+  return badUserInput("name", DUPLICATE_NAME);
+}
+
+function isUniqueNameViolation(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error as { code?: unknown }).code === "23505"
+  );
+}
+
 export class ReleasesService {
   constructor(
     private readonly releasesRepository: ReleasesRepository,
@@ -22,7 +37,18 @@ export class ReleasesService {
 
   async create(input: CreateReleaseDto): Promise<Release> {
     const release = await this.databaseService.withTransaction(async (client) => {
-      const row = await this.releasesRepository.create(client, input);
+      if (await this.releasesRepository.nameTaken(client, input.name)) {
+        throw duplicateReleaseName();
+      }
+      let row: ReleaseRecord;
+      try {
+        row = await this.releasesRepository.create(client, input);
+      } catch (error) {
+        if (isUniqueNameViolation(error)) {
+          throw duplicateReleaseName();
+        }
+        throw error;
+      }
       await this.releasesRepository.createSteps(client, row.id);
       const steps = await this.releasesRepository.findStepsByReleaseIds([row.id], { client });
       return this.toRelease(row, this.toSteps(steps));

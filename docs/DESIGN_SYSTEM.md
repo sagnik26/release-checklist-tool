@@ -76,6 +76,7 @@ The mockup's "Delete" button is also purple. Keep it purple, and use `--color-da
 - Date format: `September 20, 2022` (long month, day, year).
 - Status: plain text, `Planned`, `Ongoing`, or `Done`. No colour badges, as in the mockup.
 - View: a text link with an eye icon. Delete: text with a trash icon.
+- Delete asks for approval in the browser confirm dialog, using the release name. Cancel leaves the release in place. The release form uses the same dialog.
 - The table scrolls sideways on narrow screens. The card does not change size.
 
 ### Inputs (text and date)

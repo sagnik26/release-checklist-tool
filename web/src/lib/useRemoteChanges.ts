@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useSubscription } from "urql";
+import { useClient, useSubscription } from "urql";
 import { RELEASE_CHANGED } from "../graphql";
 import { isOwnChange, nextNotice, type ChangeNotice } from "./banner";
 import { RECONNECT_EVENT } from "./client";
 import { getClientId } from "./clientId";
+import { revalidateReleaseList } from "./release-list";
 
 type ReleaseChange = {
   releaseId: string;
@@ -16,10 +17,11 @@ type ReleaseChange = {
 };
 
 type UseRemoteChangesOptions = {
-  onRefresh: () => void;
+  onRefresh?: () => void;
 };
 
-export function useRemoteChanges({ onRefresh }: UseRemoteChangesOptions) {
+export function useRemoteChanges({ onRefresh }: UseRemoteChangesOptions = {}) {
+  const client = useClient();
   const [notice, setNotice] = useState<ChangeNotice | null>(null);
   const [result] = useSubscription<{ releaseChanged: ReleaseChange }>({
     query: RELEASE_CHANGED,
@@ -34,18 +36,27 @@ export function useRemoteChanges({ onRefresh }: UseRemoteChangesOptions) {
       return;
     }
     const eventKey = JSON.stringify(event);
-    if (eventKey === seenEvent.current || isOwnChange(event.sourceClientId, getClientId())) {
-      seenEvent.current = eventKey;
+    if (eventKey === seenEvent.current) {
       return;
     }
     seenEvent.current = eventKey;
+    const own = isOwnChange(event.sourceClientId, getClientId());
+    if ((event.kind === "RELEASE_CREATED" || event.kind === "RELEASE_DELETED") && !own) {
+      revalidateReleaseList(client);
+    }
+    if (own) {
+      return;
+    }
     if (event.kind === "STEP_CHANGED" || event.kind === "NOTES_CHANGED") {
       setNotice((current) => nextNotice(current, event));
+      onRefreshRef.current?.();
     }
-    onRefreshRef.current();
-  }, [result.data]);
+  }, [client, result.data]);
 
   useEffect(() => {
+    if (!onRefresh) {
+      return;
+    }
     const onReconnect = () => onRefresh();
     window.addEventListener(RECONNECT_EVENT, onReconnect);
     return () => window.removeEventListener(RECONNECT_EVENT, onReconnect);

@@ -1,41 +1,37 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback } from "react";
-import { useMutation, useQuery } from "urql";
-import { DELETE_RELEASE, RELEASES_QUERY } from "../graphql";
+import { useState } from "react";
+import { useMutation } from "urql";
+import { DELETE_RELEASE } from "../graphql";
 import { ChangeBanner } from "./ChangeBanner";
 import { EyeIcon, PlusIcon, TrashIcon } from "./icons";
 import { formatDueDate, statusLabel } from "../lib/format";
 import { getClientId } from "../lib/clientId";
+import { confirmDelete } from "../lib/confirm-delete";
+import { hideRelease, isReleaseHidden } from "../lib/release-list";
 import { useRemoteChanges } from "../lib/useRemoteChanges";
-
-type ReleaseListItem = {
-  id: string;
-  name: string;
-  dueDate: string;
-  status: string;
-};
+import { useReleaseList } from "./Providers";
 
 export function Table() {
-  const [result, reexecute] = useQuery<{ releases: ReleaseListItem[] }>({
-    query: RELEASES_QUERY,
-    requestPolicy: "network-only",
-  });
+  const { releases: cachedReleases, isLoading, hasError } = useReleaseList();
   const [, deleteRelease] = useMutation(DELETE_RELEASE);
-  const refresh = useCallback(() => {
-    reexecute({ requestPolicy: "network-only" });
-  }, [reexecute]);
-  const { notice, dismiss } = useRemoteChanges({ onRefresh: refresh });
+  const [, redraw] = useState(0);
+  const { notice, dismiss } = useRemoteChanges();
 
-  async function onDelete(id: string) {
-    await deleteRelease({ id, clientId: getClientId() });
-    refresh();
+  async function onDelete(id: string, name: string) {
+    if (!confirmDelete(name)) {
+      return;
+    }
+    const outcome = await deleteRelease({ id, clientId: getClientId() });
+    if (outcome.error || outcome.data?.deleteRelease !== true) {
+      return;
+    }
+    hideRelease(id);
+    redraw((tick) => tick + 1);
   }
 
-  const releases = result.data?.releases ?? [];
-  const isLoading = result.fetching && !result.data;
-  const hasError = Boolean(result.error) && !result.data;
+  const releases = cachedReleases.filter((release) => !isReleaseHidden(release.id));
 
   return (
     <div className="content">
@@ -84,7 +80,7 @@ export function Table() {
                         <button
                           className="action-button"
                           type="button"
-                          onClick={() => onDelete(release.id)}
+                          onClick={() => onDelete(release.id, release.name)}
                         >
                           Delete
                           <TrashIcon />

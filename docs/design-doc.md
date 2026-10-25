@@ -55,6 +55,8 @@ CREATE TABLE release (
 
 CREATE INDEX release_due_date_idx ON release (due_date);
 
+CREATE UNIQUE INDEX release_name_lower_idx ON release (lower(name));
+
 CREATE TABLE release_step (
   release_id  uuid NOT NULL REFERENCES release (id) ON DELETE CASCADE,
   step_key    step_key NOT NULL,
@@ -140,7 +142,7 @@ type ReleaseChange {
 
 | Operation | Arguments | Returns | Behaviour |
 |---|---|---|---|
-| `createRelease` | `name: String!`, `dueDate: String!`, `notes: String`, `clientId: String!` | `Release!` | Inserts release and seven unchecked steps in one transaction. |
+| `createRelease` | `name: String!`, `dueDate: String!`, `notes: String`, `clientId: String!` | `Release!` | Inserts release and seven unchecked steps in one transaction. Rejects a name that matches an existing release, ignoring letter case. |
 | `setStepCompleted` | `releaseId: ID!`, `stepKey: StepKey!`, `completed: Boolean!`, `clientId: String!` | `Release!` | Sets the explicit value. Not a toggle. |
 | `updateReleaseNotes` | `id: ID!`, `notes: String`, `clientId: String!` | `Release!` | Blank notes store `null`. |
 | `deleteRelease` | `id: ID!`, `clientId: String!` | `Boolean!` | Cascades to steps. |
@@ -155,7 +157,7 @@ type ReleaseChange {
 
 | Field | Rule | Error |
 |---|---|---|
-| `name` | Trimmed, 1 to 100 characters | `BAD_USER_INPUT` |
+| `name` | Trimmed, 1 to 100 characters. Unique compared with `lower(name)`. | `BAD_USER_INPUT` |
 | `dueDate` | Real calendar date, `YYYY-MM-DD`. Past dates allowed. | `BAD_USER_INPUT` |
 | `notes` | At most 2,000 characters. Blank becomes `null`. | `BAD_USER_INPUT` |
 | `id`, `releaseId` | Valid UUID | `BAD_USER_INPUT` |
@@ -216,14 +218,20 @@ WHERE release_id = ANY($1);
 - Two clients setting the same step: last write wins. Because each write carries an explicit value, the final state is always one of the values sent.
 - A step update racing a delete: the `UPDATE` finds no row and returns `NOT_FOUND`.
 - Lock order: no mutation locks more than one release. `deleteRelease` locks the release row, and the cascade removes its steps in the same statement.
-- Other tabs see changes through the subscription. A tab that reconnects refetches the open release.
+- Other tabs see changes through the subscription. A tab that reconnects refetches the open release. Reconnecting does not refetch the homepage list.
 
 **Subscription behaviour**
 - Served over SSE by GraphQL Yoga. The server sends a keepalive every 15 to 30 seconds.
 - The client includes a random `clientId` with every mutation. Events carry it back as `sourceClientId`, and the originating tab ignores events it sent itself.
 - Client behaviour per event:
-  - `STEP_CHANGED`, `NOTES_CHANGED`: refetch the release and show a dismissible banner, for example `Checkbox "All tests are passing" was checked in another tab`. Several changes collapse into "3 changes from another tab". A form with unsaved notes or steps keeps that draft; the refetch does not overwrite it.
-  - `RELEASE_CREATED`, `RELEASE_DELETED`: update the list silently. No banner.
+  - `STEP_CHANGED`, `NOTES_CHANGED`: refetch the open release and show a dismissible banner, for example `Checkbox "All tests are passing" was checked in another tab`. Several changes collapse into "3 changes from another tab". A form with unsaved notes or steps keeps that draft; the refetch does not overwrite it. The homepage list stays cached.
+  - `RELEASE_CREATED`: refetch the homepage list in every other open tab, with no banner. The tab that created the release updates its cached list from the `createRelease` result.
+  - `RELEASE_DELETED`: refetch the homepage list in every other open tab, with no banner. The tab that deleted the release drops that row from the cached list without waiting for the refetch. `deleteRelease` returns a boolean, so the document cache does not drop the list on its own.
+
+**Homepage list**
+- The homepage reads `releases` through urql's document cache (`cache-first`). A later visit uses the cached list.
+- That cache is refetched when a release is created or deleted, as described above. Step saves and note saves do not refetch it, so the status column stays as cached until the next create or delete.
+- `setStepCompleted` and `updateReleaseNotes` return a `Release`. The client strips `__typename` from those two results so the document cache does not treat them as a reason to refetch `releases`. `createRelease` keeps `__typename`, so the creating tab's cached list is invalidated and refetched.
 
 **Form drafts**
 - Checklist and notes are local drafts until Save. Toggling a checkbox does not call `setStepCompleted`.
@@ -238,6 +246,7 @@ WHERE release_id = ANY($1);
 |---|---|
 | Name `"   "` | `BAD_USER_INPUT` |
 | Name of 101 characters | `BAD_USER_INPUT` |
+| Name that matches an existing release, ignoring letter case | `BAD_USER_INPUT`, field `name` |
 | `dueDate` of `2026-02-30` | `BAD_USER_INPUT` |
 | `dueDate` in the past | Accepted |
 | `notes` of `""` or spaces | Stored as `null` |

@@ -15,6 +15,7 @@ import { ChangeBanner } from "./ChangeBanner";
 import { CheckIcon, TrashIcon } from "./icons";
 import { StepCheckbox } from "./StepCheckbox";
 import { getClientId } from "../lib/clientId";
+import { confirmDelete } from "../lib/confirm-delete";
 import { STEP_DEFINITIONS } from "../lib/steps";
 import { useRemoteChanges } from "../lib/useRemoteChanges";
 
@@ -221,6 +222,9 @@ export function ReleaseForm() {
   }
 
   async function onDelete() {
+    if (!confirmDelete(name || "this release")) {
+      return;
+    }
     await deleteRelease({ id: releaseId, clientId: getClientId() });
     router.push("/");
   }

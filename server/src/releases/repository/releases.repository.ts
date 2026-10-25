@@ -17,6 +17,17 @@ export class ReleasesRepository {
     this.stepsQueryCount = 0;
   }
 
+  async nameTaken(client: Queryable, name: string): Promise<boolean> {
+    const result = await client.query(
+      `SELECT 1
+       FROM release
+       WHERE lower(name) = lower($1)
+       LIMIT 1`,
+      [name],
+    );
+    return result.rows.length > 0;
+  }
+
   async create(
     client: Queryable,
     input: { name: string; dueDate: string; notes: string | null },

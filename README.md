@@ -10,18 +10,13 @@ ReleaseCheck is a single-user tool. The Next.js app in `web` talks to the GraphQ
 
 The list is sorted by due date, then name. Status is Planned when no step is done, Ongoing when at least one is done, and Done when all seven are done. A past due date is allowed. An empty list tells you to add a release.
 
-**Create.** New release asks for a name and a date. Notes are optional. Every step starts unchecked, and you can check steps before the first save. Save creates the release and returns to the list. A blank or over-long name, an impossible date, or notes over 2,000 characters stay on the form with an error. Blank notes are stored as empty.
+**Create.** New release asks for a name and a date. Notes are optional. Every step starts unchecked, and you can check steps before the first save. Save creates the release and returns to the list. A blank or over-long name, a name that matches an existing release regardless of letter case, an impossible date, or notes over 2,000 characters stay on the form with an error. Blank notes are stored as empty.
 
 **Update.** On an existing release, checkbox and notes edits stay on that form until Save. Save writes only the steps and notes that differ from the version loaded in that tab. Leaving without Save discards the draft. The tab that saved does not show a banner for its own change.
 
-**Delete.** Delete removes the release and its steps, then returns to the list. Opening a release that was already deleted shows that it no longer exists, with a link back to the list. Deleting the same release again does not recreate it.
+**Delete.** Delete asks for approval first. Approving removes the release and its steps, then returns to the list. Cancel leaves it in place. Opening a release that was already deleted shows that it no longer exists, with a link back to the list. Deleting the same release again does not recreate it.
 
-**Multiple tabs.** A toggle or note that has not been saved stays on the tab that made it. After a successful save, every other open tab refetches. A step or notes change shows a dismissible banner, for example Checkbox "All tests are passing" was checked in another tab. Several changes collapse into "3 changes from another tab". Creating or deleting a release refreshes the list without a banner. If another tab is mid-edit, it keeps that draft and still shows the banner. A later save from that draft sends only what it changed, and the same step is last save wins. A tab that reconnects refetches the open release.
-
-### Dependencies
-
-- **Upstream:** Supabase Postgres, through the session pooler connection string.
-- **Downstream:** the browser. The app is a static Next.js export.
+**Multiple tabs.** A toggle or note that has not been saved stays on the tab that made it. After a successful save, every other open tab refetches the open release. A step or notes change shows a dismissible banner, for example Checkbox "All tests are passing" was checked in another tab. Several changes collapse into "3 changes from another tab". The homepage list is cached. It refetches when a release is created or deleted, and that change shows up on every open tab, with no banner. If another tab is mid-edit, it keeps that draft and still shows the banner. A later save from that draft sends only what it changed, and the same step is last save wins. A tab that reconnects refetches the open release.
 
 ## Local development setup
 
@@ -119,13 +114,66 @@ yarn build
 
 ## Architecture
 
-`web` and `server` are Yarn workspaces. They share nothing except the GraphQL API. The browser uses urql. The API is GraphQL Yoga on `node:http`, with raw SQL through one `pg` pool. There is no ORM.
+`web` and `server` are Yarn workspaces. They share nothing except the GraphQL API. The browser uses urql. The API is GraphQL Yoga on `node:http`, with raw SQL through one `pg` pool. There is no ORM. Status is computed on the server from the seven step rows. The client renders what the server returns.
 
-```text
-browser (web) -- GraphQL --> server -- SQL --> Supabase
+```mermaid
+flowchart TB
+  subgraph tab [Each open browser tab]
+    ui[List and release form]
+    cache[urql document cache]
+    sub[releaseChanged subscription]
+    ui --> cache
+    sub --> cache
+  end
+
+  subgraph api [server]
+    yoga[GraphQL Yoga /graphql]
+    rules[Releases service]
+    bus[In-process pubsub]
+    pool[pg Pool]
+    yoga --> rules
+    rules --> pool
+    rules --> bus
+    bus --> yoga
+  end
+
+  db[(Supabase Postgres)]
+
+  ui -- "queries and mutations" --> yoga
+  yoga -- "SSE after commit" --> sub
+  pool --> db
 ```
 
-Status is computed in the server from the seven step rows. The client renders what the server returns.
+Queries and mutations are `POST /graphql`. The live channel is the same URL as server-sent events. Yoga publishes a `ReleaseChange` only after `COMMIT`. Each tab stores a `clientId` in `sessionStorage` and ignores events it sent itself.
+
+### What is cached
+
+The cached value is the homepage `releases` query, held in that tab's urql document cache. The query is mounted for the whole visit in `CachedReleaseList`, so leaving the list for a release form does not throw the result away. The next visit to the list reads that cache. urql's default policy is cache-first. The query does not set another policy.
+
+The open release form is not kept that way. It loads with `network-only`. The server does not cache releases or status. Each request reads Postgres and computes status again.
+
+### When the list cache is refreshed
+
+| What happened | Tab that did it | Every other open tab |
+|---|---|---|
+| Release created | The `createRelease` result includes a `Release`. urql sees that type and refetches the cached list. | The `RELEASE_CREATED` event refetches the list. No banner. |
+| Release deleted | The row is removed from the list on screen. `deleteRelease` returns a boolean, so urql does not drop the cache by itself. | The `RELEASE_DELETED` event refetches the list. No banner. |
+| Steps or notes saved | The form already has the saved values. `__typename` is stripped from those two mutation results so urql does not refetch the list. | The open release is refetched and a banner is shown. The list cache stays as it was, including the status column. |
+| Subscription reconnects | The open release is refetched. The list cache is left alone. | Same for that tab. |
+
+A refetch of the list uses `network-only` on the query that stays mounted. That is `revalidateReleaseList` in `web/src/lib/release-list.ts`.
+
+### Across open tabs
+
+Each tab has its own cache. Tabs do not share memory. They stay aligned through the subscription:
+
+1. The saving tab sends the mutation with its `clientId`.
+2. The service commits, then publishes one event on the in-process bus.
+3. Yoga writes that event to every connected subscription.
+4. A tab whose `clientId` matches `sourceClientId` drops the event.
+5. Any other tab applies it. Create and delete call the mounted list query again. A step or notes change refetches only the release that tab has open, and shows the banner. A form with unsaved edits keeps that draft.
+
+A tab sitting on the form still updates its list cache, because the list query and the subscription stay mounted after the user leaves the homepage.
 
 ### Key files
 
@@ -136,8 +184,12 @@ Status is computed in the server from the seven step rows. The client renders wh
 | `server/src/graphql/schema.graphql` | The GraphQL schema |
 | `server/src/releases/` | Release resolver, service, and SQL |
 | `server/migrations/` | SQL migrations |
+| `web/src/components/Providers.tsx` | urql provider and the mounted releases query |
+| `web/src/lib/client.ts` | Document cache, and the exchange that keeps step and notes saves from clearing the list |
+| `web/src/lib/useRemoteChanges.ts` | Subscription handler for other tabs |
 | `web/src/components/ReleaseForm.tsx` | Create and edit form |
 | `web/src/components/Table.tsx` | Release list |
+| `server/src/graphql/pubsub.service.ts` | In-process event bus, published after commit |
 | `docker-compose.yaml` | API, static site, and the startup banner |
 
 ## Deployment
