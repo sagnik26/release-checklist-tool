@@ -6,111 +6,9 @@ A checklist for tracking a software release. Each release has a name, a due date
 
 ## Overview
 
-ReleaseCheck is a single-user tool. The Next.js app in `web` talks to the GraphQL API in `server`. The API stores releases in Supabase Postgres. There is no login. Name and due date cannot be edited after a release is created. The seven steps are fixed: merged pull requests, changelog, tests, GitHub release, demo deploy, demo testing, and production deploy.
+ReleaseCheck is a single-user tool with no login. A release has a name, a due date, optional notes, and seven fixed steps. The name and date stay as they were created. Status is Planned, Ongoing, or Done from how many steps are done.
 
-The list is sorted by due date, then name. Status is Planned when no step is done, Ongoing when at least one is done, and Done when all seven are done. A past due date is allowed. An empty list tells you to add a release.
-
-**Create.** New release asks for a name and a date. Notes are optional. Every step starts unchecked, and you can check steps before the first save. Save creates the release and returns to the list. A blank or over-long name, a name that matches an existing release regardless of letter case, an impossible date, or notes over 2,000 characters stay on the form with an error. Blank notes are stored as empty.
-
-**Update.** On an existing release, checkbox and notes edits stay on that form until Save. Save writes only the steps and notes that differ from the version loaded in that tab. Leaving without Save discards the draft. The tab that saved does not show a banner for its own change.
-
-**Delete.** Delete asks for approval first. Approving removes the release and its steps, then returns to the list. Cancel leaves it in place. Opening a release that was already deleted shows that it no longer exists, with a link back to the list. Deleting the same release again does not recreate it.
-
-**Multiple tabs.** A toggle or note that has not been saved stays on the tab that made it. The homepage list and each release's detail are cached in that tab. After a successful save, every other open tab refreshes that release's cached detail. A step or notes change shows a dismissible banner when the tab is on the form, for example Checkbox "All tests are passing" was checked in another tab. Several changes collapse into "3 changes from another tab". The list refetches when a release is created or deleted, and when its steps are saved, so the status column matches the checklist. A notes-only save leaves the list cache as it is. Those list updates show on every open tab. If another tab is mid-edit, it keeps that draft and still shows the banner. A later save from that draft sends only what it changed, and the same step is last save wins. A tab that reconnects refetches the open release.
-
-## Local development setup
-
-### Prerequisites
-
-- Node.js 20 or later (`.nvmrc` is `20`)
-- Yarn 4.9.2, the version in the root `packageManager` field. Enable it with Corepack: `corepack enable`
-- A Supabase project for development, and a second Supabase project for tests
-- Docker, if you want the container stack. `yarn dev:up` calls the `docker-compose` binary
-
-Install once from the repository root. Do not run `npm install` inside `web` or `server`.
-
-```bash
-yarn install
-```
-
-A global Yarn 1.x install fails the `packageManager` check. Use `corepack yarn` for the commands below if `yarn` is still 1.x.
-
-### Environment variables
-
-Copy the examples and fill in real values. Do not commit `server/.env` or `web/.env.local`.
-
-```bash
-cp server/.env.example server/.env
-cp web/.env.example web/.env.local
-```
-
-| Variable | Used by | Purpose | Where to get it |
-|---|---|---|---|
-| `DATABASE_URL` | server, migrations | Dev database. Use the Supabase session pooler string from `.env.example` | Supabase, Project Settings, Database |
-| `TEST_DATABASE_URL` | server tests | A different Supabase project. Tests run `TRUNCATE release CASCADE` | A second Supabase project |
-| `PORT` | server | API port. Default `4000` | `server/.env` |
-| `CORS_ORIGIN` | server | Allowed frontend origin, `http://localhost:3000` locally | `server/.env` |
-| `GRAPHIQL_ENABLED` | server | `true` locally, `false` in production | `server/.env` |
-| `NEXT_PUBLIC_GRAPHQL_URL` | web | Full GraphQL URL, `http://localhost:4000/graphql` locally. Baked in at build time | `web/.env.local` |
-
-`TEST_DATABASE_URL` must not point at the dev database.
-
-Apply the schema before the first start:
-
-```bash
-yarn workspace server migrate:up
-```
-
-Roll back the last migration:
-
-```bash
-yarn workspace server migrate:down
-```
-
-### Running locally
-
-```bash
-yarn start
-```
-
-The API listens on http://localhost:4000/graphql. The app listens on http://localhost:3000.
-
-Open the app, choose **New release**, and save a name and date. The new form is at `/release`. An existing release is at `/release?id=<uuid>`.
-
-On an existing release, checkbox and notes edits stay on that form until **Save**. Other open tabs do not change until the save succeeds. Each of them then shows a banner, for example: Checkbox "All tests are passing" was checked in another tab. Leaving the form without saving discards the draft.
-
-GraphiQL is at http://localhost:4000/graphql when `GRAPHIQL_ENABLED=true`. Queries, mutations, and subscriptions all use `POST /graphql`. Subscriptions are server-sent events on that same URL.
-
-Docker, with the daemon already running:
-
-```bash
-yarn dev:up
-yarn dev:down
-```
-
-`yarn dev:up` builds and stays attached to the logs. After both containers are healthy it prints:
-
-```text
-Frontend  http://localhost:3000
-Backend   http://localhost:4000/graphql
-```
-
-The site container publishes port 3000. The API container reads `server/.env`. Run `yarn workspace server migrate:up` on the host before the first Docker start. The database is not a container. Ctrl+C stops the stack. `yarn dev:down` stops it and leaves the named volumes in place.
-
-### Running tests
-
-```bash
-yarn test
-yarn workspace server test:unit
-```
-
-`yarn test` runs the server unit tests and the integration tests. Integration tests need `TEST_DATABASE_URL` and the migrations applied there. They truncate `release` before each test file.
-
-Build both workspaces:
-
-```bash
-yarn build
-```
+Create asks for a name and date, then returns to the list. Checklist and notes edits stay on the form until Save. Delete asks for approval. Another open tab sees a saved change. An unsaved edit stays on the tab that made it.
 
 ## Architecture
 
@@ -128,7 +26,7 @@ flowchart LR
     svc -.->|publish after COMMIT| bus
     bus -.->|releaseChanged| yoga
   end
-  db[(Supabase Postgres)]
+  db[(Postgres)]
 
   tab ~~~ server
   tab ~~~ yoga
@@ -195,7 +93,115 @@ A tab sitting on the form still updates its list cache, because the list query a
 | `web/src/components/ReleaseForm.tsx` | Create and edit form |
 | `web/src/components/Table.tsx` | Release list |
 | `server/src/graphql/pubsub.service.ts` | In-process event bus, published after commit |
-| `docker-compose.yaml` | API, static site, and the startup banner |
+| `docker-compose.yaml` | Production API and site. The platform supplies the database |
+| `docker-compose.dev.yaml` | Local Postgres, pgAdmin, API, and site |
+
+## Local development setup
+
+### Local database
+
+Docker is the only requirement. This path does not use env files.
+
+1. Clone the repository and change into it.
+2. Build and start the stack:
+
+```bash
+docker-compose -f docker-compose.dev.yaml up --build
+```
+
+`yarn dev:test:up` runs that same command. It starts Postgres, pgAdmin, the API, and the site. The API applies migrations as it starts. `yarn dev:up` uses `docker-compose.yaml`, the production file: the API and the site only, with the database supplied by the platform.
+
+3. Wait for the log to print:
+
+```text
+Frontend  http://localhost:3000
+Backend   http://localhost:4000/graphql
+pgAdmin   http://localhost:5050
+```
+
+4. Open the frontend and add a release.
+
+pgAdmin signs in as `admin@example.com` with password `releasecheck`. The ReleaseCheck server is already registered: host `postgres`, database `releasecheck`, user `releasecheck`, password `releasecheck`.
+
+Stop the stack with Ctrl+C, or:
+
+```bash
+docker-compose -f docker-compose.dev.yaml down
+```
+
+`yarn dev:test:down` is the same command. The Postgres volume is kept. `yarn dev:down` stops the production file.
+
+### Hosted Postgres
+
+`docker-compose.yaml` does not start a database. It reads `server/.env`.
+
+1. Copy the example and set the hosted connection string:
+
+```bash
+cp server/.env.example server/.env
+```
+
+| Variable | Value |
+|---|---|
+| `DATABASE_URL` | Hosted Postgres URL. On Supabase, use the session pooler (`aws-0-<region>.pooler.supabase.com`, user `postgres.<project-ref>`). The host `db.<project>.supabase.co` is IPv6-only, and the Docker VM cannot reach it. |
+| `PORT` | `4000` |
+| `CORS_ORIGIN` | `http://localhost:3000` |
+| `GRAPHIQL_ENABLED` | `true` |
+
+Do not commit `server/.env`. `TEST_DATABASE_URL` is only for `yarn test`, not for this stack. The site image already calls `http://localhost:4000/graphql`, so `web/.env.local` is not required.
+
+2. Start it:
+
+```bash
+yarn dev:up
+```
+
+That is `docker-compose up --build`. The API applies migrations on startup. The log prints the site and the API. There is no pgAdmin in this file.
+
+Stop it with `yarn dev:down`.
+
+### Without Docker
+
+Node.js 20 and Yarn 4. `yarn start` runs the API and the Next.js dev server together. It does not start Postgres, and it does not apply migrations.
+
+1. Clone the repository, change into it, and install:
+
+```bash
+nvm use
+corepack enable
+yarn install
+```
+
+2. Copy the env files:
+
+```bash
+cp server/.env.example server/.env
+cp web/.env.example web/.env.local
+```
+
+| Variable | File | Value |
+|---|---|---|
+| `DATABASE_URL` | `server/.env` | Hosted Postgres URL. On Supabase, use the session pooler (`aws-0-<region>.pooler.supabase.com`, user `postgres.<project-ref>`). |
+| `PORT` | `server/.env` | `4000` |
+| `CORS_ORIGIN` | `server/.env` | `http://localhost:3000` |
+| `GRAPHIQL_ENABLED` | `server/.env` | `true` |
+| `NEXT_PUBLIC_GRAPHQL_URL` | `web/.env.local` | `http://localhost:4000/graphql` |
+
+Do not commit `server/.env` or `web/.env.local`. `TEST_DATABASE_URL` is only for `yarn test`.
+
+3. Apply migrations once:
+
+```bash
+yarn workspace server migrate:up
+```
+
+4. Start both workspaces:
+
+```bash
+yarn start
+```
+
+The API reloads when its TypeScript changes. Open `http://localhost:3000`. The API is `http://localhost:4000/graphql`. Stop with Ctrl+C.
 
 ## Stress test
 
@@ -209,7 +215,7 @@ The web app is a static Next.js export. On Vercel, set the root directory to `we
 
 Vercel’s default `yarn` is 1.22, which ignores these workspaces and does not install `next`. `.yarnrc.yml` points `yarnPath` at the committed Yarn 4.9.2 binary in `.yarn/releases`, so that install hands off to Yarn 4. Keep that file in git.
 
-The database stays on Supabase. Point `DATABASE_URL` at the session pooler and run `yarn workspace server migrate:up` against it once.
+The database stays on Supabase. `docker-compose.yaml` is the API and the site for a platform that injects `DATABASE_URL`, `CORS_ORIGIN`, and `NEXT_PUBLIC_GRAPHQL_URL`. Point `DATABASE_URL` at the session pooler and run `yarn workspace server migrate:up` against it once. The API container also applies pending migrations when it starts.
 
 Production URLs are not recorded in this repo.
 
@@ -231,7 +237,7 @@ yarn workspace server dev
 yarn workspace web dev
 ```
 
-The API reloads when its TypeScript changes. The Next.js dev server is the second command.
+The API reloads when its TypeScript changes. The Next.js dev server is the second command. `yarn start` runs both. The env files and the migration are in [Local development setup](#local-development-setup).
 
 ## Troubleshooting
 
@@ -245,13 +251,13 @@ The API reloads when its TypeScript changes. The Next.js dev server is the secon
 
 **Symptom:** Docker prints its own usage text.  
 **Cause:** This machine's Docker CLI has no Compose plugin. The project script calls `docker-compose`.  
-**Fix:** `yarn dev:up`.
+**Fix:** `yarn dev:test:up` for the local stack, or `yarn dev:up` for the production file. Both call `docker-compose`.
 
-### The API container cannot resolve the Supabase host
+### Port 5432 or 5050 is already in use
 
-**Symptom:** Server logs show `getaddrinfo ENOTFOUND` for `db.<project>.supabase.co`.  
-**Cause:** That host is IPv6-only. The Docker VM has no IPv6 route.  
-**Fix:** Use the session pooler host from `server/.env.example` (`aws-0-<region>.pooler.supabase.com`, user `postgres.<project-ref>`).
+**Symptom:** Compose fails to publish Postgres or pgAdmin.  
+**Cause:** Another Postgres or pgAdmin is bound to that port.  
+**Fix:** Stop the other process, or change the host port in `docker-compose.dev.yaml`.
 
 ### Tests deleted the dev releases
 

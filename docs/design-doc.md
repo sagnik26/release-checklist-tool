@@ -25,10 +25,10 @@
 - Repo: a Yarn 4 workspaces monorepo with two workspaces, `web` (frontend) and `server` (backend), and one root `yarn.lock`.
 - Backend: Node.js 20+, GraphQL Yoga on `node:http`, plain `pg` with a single `Pool`, raw SQL.
 - Migrations: `node-pg-migrate`, SQL files in `server/migrations/`.
-- Database: PostgreSQL hosted on Supabase (session pooler string). No local Postgres.
+- Database: PostgreSQL. `docker-compose.dev.yaml` runs Postgres and pgAdmin for local use, and the API applies migrations on startup. `docker-compose.yaml` is the API and the site only. Deployed environments use Supabase.
 - Tests: Vitest, with integration tests against a dedicated Supabase test project.
 - Hosting: API on Render as a native Node service (no Docker). Frontend on Vercel as a static Next.js export with root directory `web`, using urql and `graphql-sse`.
-- No ORM. No Docker in the current scope.
+- No ORM.
 
 **UI styling:** defined in `docs/DESIGN_SYSTEM.md`. The backend doesn't depend on it, but the change banner text and the step labels must match what that file and `STEP_DEFINITIONS` specify.
 

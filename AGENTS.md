@@ -13,7 +13,7 @@ Read `docs/design-doc.md` before making any change. It is the source of truth fo
 - `zod` is not used. Validation is hand-written in `server/src/common/validators/validation.pipe.ts`.
 - Tests: Vitest for unit and integration tests. Integration tests run against the Supabase test project.
 - Frontend: Next.js static export (`output: 'export'`), urql, and `graphql-sse`. No server rendering.
-- Hosting: API on Render as a native Node service (no Docker), frontend on Vercel with root directory `web`, database on Supabase.
+- Hosting: API on Render as a native Node service (no Docker), frontend on Vercel with root directory `web`, database on Supabase. `docker-compose.yaml` is the API and the site for a platform that injects the database URL. `docker-compose.dev.yaml` is the local stack: Postgres, pgAdmin, API, and site, with no env files.
 
 ## 2. Commands
 
@@ -23,8 +23,10 @@ Run from the repository root. Install once at the root, then use workspace comma
 # root
 yarn install              # install all workspaces
 yarn start                # start web and server together
-yarn dev:up               # build and start the Docker stack
-yarn dev:down             # stop the Docker stack
+yarn dev:up               # build and start docker-compose.yaml
+yarn dev:down             # stop docker-compose.yaml
+yarn dev:test:up          # build and start the local Postgres stack
+yarn dev:test:down        # stop the local Postgres stack
 yarn test                 # run server tests
 yarn build                # build web (static export) and server
 
@@ -115,7 +117,7 @@ releasecheck/
       integration/         GraphQL operations against the test database
 ```
 
-Docker runs both apps through the root `docker-compose.yaml`. `server/Dockerfile` builds the API. `web/Dockerfile` builds the static export and nginx serves it. The database stays on Supabase via `server/.env`.
+`docker-compose.yaml` runs the API and the site. The database is external. `yarn dev:up` and `yarn dev:down` use that file. `docker-compose.dev.yaml` runs Postgres, pgAdmin, the API, and the site for local use. `yarn dev:test:up` and `yarn dev:test:down` use that file. `server/Dockerfile` builds the API. `web/Dockerfile` builds the static export and nginx serves it.
 
 ## 5. Conventions
 

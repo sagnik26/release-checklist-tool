@@ -11,6 +11,8 @@
     "start": "yarn workspaces foreach -A -p --interlaced --include server --include web run dev",
     "dev:up": "docker-compose up --build",
     "dev:down": "docker-compose down",
+    "dev:test:up": "docker-compose -f docker-compose.dev.yaml up --build",
+    "dev:test:down": "docker-compose -f docker-compose.dev.yaml down",
     "test": "yarn workspace server test",
     "build": "yarn workspaces foreach -A --include server --include web run build"
   }

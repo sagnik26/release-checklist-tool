@@ -1,0 +1,14 @@
+{
+  "Servers": {
+    "1": {
+      "Name": "ReleaseCheck",
+      "Group": "Servers",
+      "Host": "postgres",
+      "Port": 5432,
+      "MaintenanceDB": "releasecheck",
+      "Username": "releasecheck",
+      "SSLMode": "prefer",
+      "PassFile": "/tmp/pgpass"
+    }
+  }
+}

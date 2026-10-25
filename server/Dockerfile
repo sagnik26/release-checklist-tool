@@ -22,8 +22,9 @@ ENV NODE_ENV=production
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/server/package.json ./server/package.json
 COPY --from=build /app/server/dist ./server/dist
+COPY server/migrations ./server/migrations
 
 WORKDIR /app/server
 EXPOSE 4000
 
-CMD ["node", "dist/main.js"]
+CMD ["sh", "-c", "node ../node_modules/node-pg-migrate/bin/node-pg-migrate.js up -m migrations --migration-file-language sql && exec node dist/main.js"]
