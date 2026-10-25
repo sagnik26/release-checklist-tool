@@ -224,14 +224,21 @@ WHERE release_id = ANY($1);
 - Served over SSE by GraphQL Yoga. The server sends a keepalive every 15 to 30 seconds.
 - The client includes a random `clientId` with every mutation. Events carry it back as `sourceClientId`, and the originating tab ignores events it sent itself.
 - Client behaviour per event:
-  - `STEP_CHANGED`, `NOTES_CHANGED`: refetch the open release and show a dismissible banner, for example `Checkbox "All tests are passing" was checked in another tab`. Several changes collapse into "3 changes from another tab". A form with unsaved notes or steps keeps that draft; the refetch does not overwrite it. The homepage list stays cached.
+  - `STEP_CHANGED`: refetch that release's cached detail and the homepage list in every other open tab, and show a dismissible banner, for example `Checkbox "All tests are passing" was checked in another tab`. Several changes collapse into "3 changes from another tab". A form with unsaved notes or steps keeps that draft; the detail refetch does not overwrite it. The list refetch updates the status column, which is derived from the steps. The tab that saved ignores this event. After its step writes finish, it refetches the list itself and writes the detail cache from a follow-up read, because those mutation results have `__typename` removed.
+  - `NOTES_CHANGED`: refetch that release's cached detail in every other open tab and show the banner. Notes do not change status, so the homepage list stays cached. The tab that saved writes the detail cache from a follow-up read.
   - `RELEASE_CREATED`: refetch the homepage list in every other open tab, with no banner. The tab that created the release updates its cached list from the `createRelease` result.
-  - `RELEASE_DELETED`: refetch the homepage list in every other open tab, with no banner. The tab that deleted the release drops that row from the cached list without waiting for the refetch. `deleteRelease` returns a boolean, so the document cache does not drop the list on its own.
+  - `RELEASE_DELETED`: refetch the homepage list and that release's cached detail in every other open tab, with no banner. A tab that has the release open then shows that it no longer exists. The tab that deleted the release drops that row from the cached list without waiting for the refetch. `deleteRelease` returns a boolean, so the document cache does not drop the list on its own.
 
 **Homepage list**
 - The homepage reads `releases` through urql's document cache (`cache-first`). A later visit uses the cached list.
-- That cache is refetched when a release is created or deleted, as described above. Step saves and note saves do not refetch it, so the status column stays as cached until the next create or delete.
-- `setStepCompleted` and `updateReleaseNotes` return a `Release`. The client strips `__typename` from those two results so the document cache does not treat them as a reason to refetch `releases`. `createRelease` keeps `__typename`, so the creating tab's cached list is invalidated and refetched.
+- That cache is refetched when a release is created, deleted, or its steps are saved. A notes-only save does not refetch it. Status is derived from the completed steps, so a step save has to refresh the list or the status column stays stale when the user returns.
+- `setStepCompleted` and `updateReleaseNotes` return a `Release`. The client strips `__typename` from those two results so each mutation does not refetch `releases` on its own. The saving tab refetches the list once after its step writes, which is the final status. `createRelease` keeps `__typename`, so the creating tab's cached list is invalidated and refetched. If that new release also saved completed steps, the tab refetches the list again after those steps.
+
+**Release page**
+- An existing release is read with `release(id)` through the same document cache (`cache-first`). Opening that release again in the tab uses the cached detail. A new live connection when the page opens is not a reconnect, so it does not refetch.
+- Other tabs refresh that cache entry when the release's steps or notes are saved, and when the release is deleted. A tab that is not on the page still updates the entry, so the next open is current.
+- The tab that saved does not apply its own subscription event. It refreshes its detail cache with an explicit read after the save succeeds.
+- A new release form does not read `release(id)`.
 
 **Form drafts**
 - Checklist and notes are local drafts until Save. Toggling a checkbox does not call `setStepCompleted`.

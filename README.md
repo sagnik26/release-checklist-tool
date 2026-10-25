@@ -16,7 +16,7 @@ The list is sorted by due date, then name. Status is Planned when no step is don
 
 **Delete.** Delete asks for approval first. Approving removes the release and its steps, then returns to the list. Cancel leaves it in place. Opening a release that was already deleted shows that it no longer exists, with a link back to the list. Deleting the same release again does not recreate it.
 
-**Multiple tabs.** A toggle or note that has not been saved stays on the tab that made it. After a successful save, every other open tab refetches the open release. A step or notes change shows a dismissible banner, for example Checkbox "All tests are passing" was checked in another tab. Several changes collapse into "3 changes from another tab". The homepage list is cached. It refetches when a release is created or deleted, and that change shows up on every open tab, with no banner. If another tab is mid-edit, it keeps that draft and still shows the banner. A later save from that draft sends only what it changed, and the same step is last save wins. A tab that reconnects refetches the open release.
+**Multiple tabs.** A toggle or note that has not been saved stays on the tab that made it. The homepage list and each release's detail are cached in that tab. After a successful save, every other open tab refreshes that release's cached detail. A step or notes change shows a dismissible banner when the tab is on the form, for example Checkbox "All tests are passing" was checked in another tab. Several changes collapse into "3 changes from another tab". The list refetches when a release is created or deleted, and when its steps are saved, so the status column matches the checklist. A notes-only save leaves the list cache as it is. Those list updates show on every open tab. If another tab is mid-edit, it keeps that draft and still shows the banner. A later save from that draft sends only what it changed, and the same step is last save wins. A tab that reconnects refetches the open release.
 
 ## Local development setup
 
@@ -117,61 +117,65 @@ yarn build
 `web` and `server` are Yarn workspaces. They share nothing except the GraphQL API. The browser uses urql. The API is GraphQL Yoga on `node:http`, with raw SQL through one `pg` pool. There is no ORM. Status is computed on the server from the seven step rows. The client renders what the server returns.
 
 ```mermaid
-flowchart TB
-  subgraph tab [Each open browser tab]
-    ui[List and release form]
-    cache[urql document cache]
-    sub[releaseChanged subscription]
-    ui --> cache
-    sub --> cache
-  end
-
-  subgraph api [server]
-    yoga[GraphQL Yoga /graphql]
-    rules[Releases service]
+flowchart LR
+  tab[Browser tab]
+  subgraph server [Server]
+    direction TB
+    yoga[GraphQL Yoga]
+    svc[Releases service]
     bus[In-process pubsub]
-    pool[pg Pool]
-    yoga --> rules
-    rules --> pool
-    rules --> bus
-    bus --> yoga
+    yoga --> svc
+    svc -.->|publish after COMMIT| bus
+    bus -.->|releaseChanged| yoga
   end
-
   db[(Supabase Postgres)]
 
-  ui -- "queries and mutations" --> yoga
-  yoga -- "SSE after commit" --> sub
-  pool --> db
+  tab ~~~ server
+  tab ~~~ yoga
+  server ~~~ db
+  tab -->|query or mutation| yoga
+  svc --> db
+  yoga -.->|SSE to every tab| tab
 ```
 
-Queries and mutations are `POST /graphql`. The live channel is the same URL as server-sent events. Yoga publishes a `ReleaseChange` only after `COMMIT`. Each tab stores a `clientId` in `sessionStorage` and ignores events it sent itself.
+Queries and mutations are `POST /graphql`. After `COMMIT` the service publishes `releaseChanged` on the in-process bus. Yoga streams that event to every connected tab as server-sent events on the same URL. Each tab stores a `clientId` in `sessionStorage` and ignores events it sent itself.
 
 ### What is cached
 
-The cached value is the homepage `releases` query, held in that tab's urql document cache. The query is mounted for the whole visit in `CachedReleaseList`, so leaving the list for a release form does not throw the result away. The next visit to the list reads that cache. urql's default policy is cache-first. The query does not set another policy.
+Each tab has its own urql document cache. Tabs do not share memory. Nothing is cached on the server. Status is computed on each read. Unsaved checklist and notes edits live in the form, not in this cache. The new-release form has no detail entry.
 
-The open release form is not kept that way. It loads with `network-only`. The server does not cache releases or status. Each request reads Postgres and computes status again.
+| Cache | Stored result | Policy | Filled when |
+|---|---|---|---|
+| Homepage list | The `releases` query: every release, including status and steps | cache-first. The query stays mounted for the whole visit in `CachedReleaseList`, so leaving the list does not drop it | First time this tab reads the list |
+| Release detail | The `release(id)` query, one entry per release | cache-first | First open of that release, or a background read while the tab is on another page |
 
-### When the list cache is refreshed
+### When a cache is invalidated
 
-| What happened | Tab that did it | Every other open tab |
-|---|---|---|
-| Release created | The `createRelease` result includes a `Release`. urql sees that type and refetches the cached list. | The `RELEASE_CREATED` event refetches the list. No banner. |
-| Release deleted | The row is removed from the list on screen. `deleteRelease` returns a boolean, so urql does not drop the cache by itself. | The `RELEASE_DELETED` event refetches the list. No banner. |
-| Steps or notes saved | The form already has the saved values. `__typename` is stripped from those two mutation results so urql does not refetch the list. | The open release is refetched and a banner is shown. The list cache stays as it was, including the status column. |
-| Subscription reconnects | The open release is refetched. The list cache is left alone. | Same for that tab. |
+A refetch is `network-only`. The list uses the mounted query, `revalidateReleaseList` in `web/src/lib/release-list.ts`. A detail uses the open form's query when that release is on screen, and otherwise a one-off read into the same cache key, `revalidateReleaseDetail` in `web/src/lib/release-detail.ts`. `SetStep` and `UpdateNotes` have `__typename` removed, so those mutation results do not invalidate either cache by themselves. `createRelease` keeps `__typename`, so urql invalidates the list in the creating tab.
 
-A refetch of the list uses `network-only` on the query that stays mounted. That is `revalidateReleaseList` in `web/src/lib/release-list.ts`.
+| Event | When | List | Detail for that release | Banner |
+|---|---|---|---|---|
+| `createRelease` succeeds | Saving tab, after commit | Invalidated by the `Release` result. If the new release also saved steps, the tab refetches the list again after those writes | No entry. The new form does not read `release(id)` | No |
+| `RELEASE_CREATED` | Every other tab, after commit | Refetch | Left as it is | No |
+| Step writes finish | Saving tab, once, after the last successful `setStepCompleted`. Its own event is ignored | Refetch, so status matches the checklist | Explicit read | No |
+| `STEP_CHANGED` | Every other tab, one event per saved step | Refetch | Refetch, including a tab that is not on that release | Yes, on the list and on an open form. A dirty draft is kept |
+| Notes save succeeds | Saving tab, after `updateReleaseNotes`. Its own event is ignored | Left as it is. Notes do not change status | Explicit read | No |
+| `NOTES_CHANGED` | Every other tab, after commit | Left as it is | Refetch | Yes. A dirty draft is kept |
+| Delete from the list | Saving tab, after confirm. Its own event is ignored | That row is hidden locally. The query is not refetched. `deleteRelease` returns a boolean, so urql does not drop the list | Left as it is | No |
+| Delete from the form | Saving tab, after confirm, then it returns home | Left as it is. The row can still be in the cached list | Explicit read, which comes back empty | No |
+| `RELEASE_DELETED` | Every other tab, after commit | Refetch | Refetch. An open form shows that the release no longer exists | No |
+| Subscription retries | Only after a dropped connection reconnects, and only while a form is open. Opening a page does not count | Left as it is | The open release is refetched | No |
+| Open a page again | Same tab, no new event | Cache hit | Cache hit for that id | No |
 
 ### Across open tabs
 
-Each tab has its own cache. Tabs do not share memory. They stay aligned through the subscription:
+Tabs stay aligned through the subscription. The table above is what each event does to the two caches.
 
 1. The saving tab sends the mutation with its `clientId`.
 2. The service commits, then publishes one event on the in-process bus.
 3. Yoga writes that event to every connected subscription.
 4. A tab whose `clientId` matches `sourceClientId` drops the event.
-5. Any other tab applies it. Create and delete call the mounted list query again. A step or notes change refetches only the release that tab has open, and shows the banner. A form with unsaved edits keeps that draft.
+5. Any other tab applies the row for that event.
 
 A tab sitting on the form still updates its list cache, because the list query and the subscription stay mounted after the user leaves the homepage.
 
@@ -186,11 +190,16 @@ A tab sitting on the form still updates its list cache, because the list query a
 | `server/migrations/` | SQL migrations |
 | `web/src/components/Providers.tsx` | urql provider and the mounted releases query |
 | `web/src/lib/client.ts` | Document cache, and the exchange that keeps step and notes saves from clearing the list |
+| `web/src/lib/release-detail.ts` | Cache refresh for one release |
 | `web/src/lib/useRemoteChanges.ts` | Subscription handler for other tabs |
 | `web/src/components/ReleaseForm.tsx` | Create and edit form |
 | `web/src/components/Table.tsx` | Release list |
 | `server/src/graphql/pubsub.service.ts` | In-process event bus, published after commit |
 | `docker-compose.yaml` | API, static site, and the startup banner |
+
+## Stress test
+
+A stress test of the API and the live subscription is in progress. It is not part of `yarn test` yet, and there is no run command. This section will record how to run it and what it covers when that work is ready.
 
 ## Deployment
 

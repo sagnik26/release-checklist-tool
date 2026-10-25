@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { CombinedError, useMutation, useQuery } from "urql";
+import { CombinedError, useClient, useMutation, useQuery } from "urql";
 import {
   CREATE_RELEASE,
   DELETE_RELEASE,
@@ -12,10 +12,12 @@ import {
   UPDATE_NOTES,
 } from "../graphql";
 import { ChangeBanner } from "./ChangeBanner";
-import { CheckIcon, TrashIcon } from "./icons";
+import { CheckIcon, SpinnerIcon, TrashIcon } from "./icons";
 import { StepCheckbox } from "./StepCheckbox";
 import { getClientId } from "../lib/clientId";
 import { confirmDelete } from "../lib/confirm-delete";
+import { cacheReleaseDetail, registerReleaseDetail } from "../lib/release-detail";
+import { revalidateReleaseList } from "../lib/release-list";
 import { STEP_DEFINITIONS } from "../lib/steps";
 import { useRemoteChanges } from "../lib/useRemoteChanges";
 
@@ -98,11 +100,11 @@ export function ReleaseForm() {
     setFieldErrors({});
   }, [releaseId]);
 
+  const client = useClient();
   const [releaseResult, reexecuteRelease] = useQuery<{ release: ReleaseData | null }>({
     query: RELEASE_QUERY,
     variables: { id: releaseId ?? "" },
     pause: releaseId === null || isNew,
-    requestPolicy: "network-only",
   });
   const [, createRelease] = useMutation(CREATE_RELEASE);
   const [, setStepCompleted] = useMutation(SET_STEP);
@@ -114,6 +116,12 @@ export function ReleaseForm() {
       reexecuteRelease({ requestPolicy: "network-only" });
     }
   }, [releaseId, reexecuteRelease]);
+  useEffect(() => {
+    if (!releaseId || isNew) {
+      return;
+    }
+    return registerReleaseDetail(releaseId, refresh);
+  }, [isNew, refresh, releaseId]);
   const { notice, dismiss } = useRemoteChanges({ onRefresh: refresh });
 
   useEffect(() => {
@@ -165,21 +173,28 @@ export function ReleaseForm() {
         return;
       }
       const id = (created.data.createRelease as ReleaseData).id;
-      for (const step of steps) {
-        if (step.completed) {
-          await setStepCompleted({
-            releaseId: id,
-            stepKey: step.key,
-            completed: true,
-            clientId,
-          });
-        }
+      const completedSteps = steps.filter((step) => step.completed);
+      for (const step of completedSteps) {
+        await setStepCompleted({
+          releaseId: id,
+          stepKey: step.key,
+          completed: true,
+          clientId,
+        });
+      }
+      if (completedSteps.length > 0) {
+        revalidateReleaseList(client);
       }
       setIsSaving(false);
       router.push("/");
       return;
     }
+    if (!releaseId) {
+      setIsSaving(false);
+      return;
+    }
     const loaded = baselineRef.current;
+    let stepsChanged = false;
     for (const step of steps) {
       if (loaded && step.completed === loaded.steps[step.key]) {
         continue;
@@ -191,10 +206,13 @@ export function ReleaseForm() {
         clientId,
       });
       if (saved.error || !saved.data?.setStepCompleted) {
+        cacheReleaseDetail(client, releaseId);
+        revalidateReleaseList(client);
         setFieldErrors({ steps: saved.error?.message ?? "Could not save the checklist." });
         setIsSaving(false);
         return;
       }
+      stepsChanged = true;
       if (loaded) {
         const current = baselineRef.current ?? loaded;
         rememberBaseline({
@@ -204,6 +222,10 @@ export function ReleaseForm() {
       }
     }
     if (loaded && notes === loaded.notes) {
+      cacheReleaseDetail(client, releaseId);
+      if (stepsChanged) {
+        revalidateReleaseList(client);
+      }
       setIsSaving(false);
       router.push("/");
       return;
@@ -214,18 +236,28 @@ export function ReleaseForm() {
       setFieldErrors(
         Object.keys(errors).length > 0 ? errors : { notes: updated.error.message },
       );
+      if (stepsChanged) {
+        revalidateReleaseList(client);
+      }
       setIsSaving(false);
       return;
+    }
+    cacheReleaseDetail(client, releaseId);
+    if (stepsChanged) {
+      revalidateReleaseList(client);
     }
     setIsSaving(false);
     router.push("/");
   }
 
   async function onDelete() {
-    if (!confirmDelete(name || "this release")) {
+    if (!releaseId || !confirmDelete(name || "this release")) {
       return;
     }
-    await deleteRelease({ id: releaseId, clientId: getClientId() });
+    const deleted = await deleteRelease({ id: releaseId, clientId: getClientId() });
+    if (!deleted.error) {
+      cacheReleaseDetail(client, releaseId);
+    }
     router.push("/");
   }
 
@@ -325,9 +357,14 @@ export function ReleaseForm() {
               </ul>
               {fieldErrors.steps ? <p className="field-error">{fieldErrors.steps}</p> : null}
               <div className="form-actions">
-                <button className="button" type="submit" disabled={isSaving}>
+                <button
+                  className={isSaving ? "button is-saving" : "button"}
+                  type="submit"
+                  disabled={isSaving}
+                  aria-busy={isSaving}
+                >
                   Save
-                  <CheckIcon />
+                  {isSaving ? <SpinnerIcon /> : <CheckIcon />}
                 </button>
               </div>
             </form>

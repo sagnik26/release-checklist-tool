@@ -152,6 +152,26 @@ textarea {
   opacity: 0.7;
 }
 
+.button:disabled.is-saving {
+  opacity: 1;
+}
+
+.icon-spin {
+  animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .icon-spin {
+    animation: none;
+  }
+}
+
 .table-scroll {
   overflow-x: auto;
 }

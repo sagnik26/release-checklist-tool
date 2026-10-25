@@ -99,6 +99,7 @@ The mockup's "Delete" button is also purple. Keep it purple, and use `--color-da
 
 ### Save
 - Primary button at the bottom right of the form, with a check icon.
+- While a save is in progress the button is disabled, so it cannot be submitted again. The check icon is replaced by a spinning loader of the same 16px size, in the button text colour. The label stays "Save", and the button stays at full opacity so the loader stays visible. The spin stops for users who prefer reduced motion; the loader mark remains.
 
 ### Change banner (added for real-time updates)
 - Sits at the top of the content area, above the card.

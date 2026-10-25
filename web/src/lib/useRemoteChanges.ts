@@ -6,6 +6,7 @@ import { RELEASE_CHANGED } from "../graphql";
 import { isOwnChange, nextNotice, type ChangeNotice } from "./banner";
 import { RECONNECT_EVENT } from "./client";
 import { getClientId } from "./clientId";
+import { revalidateReleaseDetail } from "./release-detail";
 import { revalidateReleaseList } from "./release-list";
 
 type ReleaseChange = {
@@ -41,15 +42,27 @@ export function useRemoteChanges({ onRefresh }: UseRemoteChangesOptions = {}) {
     }
     seenEvent.current = eventKey;
     const own = isOwnChange(event.sourceClientId, getClientId());
-    if ((event.kind === "RELEASE_CREATED" || event.kind === "RELEASE_DELETED") && !own) {
+    if (
+      !own &&
+      (event.kind === "RELEASE_CREATED" ||
+        event.kind === "RELEASE_DELETED" ||
+        event.kind === "STEP_CHANGED")
+    ) {
       revalidateReleaseList(client);
+    }
+    if (
+      !own &&
+      (event.kind === "STEP_CHANGED" ||
+        event.kind === "NOTES_CHANGED" ||
+        event.kind === "RELEASE_DELETED")
+    ) {
+      revalidateReleaseDetail(client, event.releaseId);
     }
     if (own) {
       return;
     }
     if (event.kind === "STEP_CHANGED" || event.kind === "NOTES_CHANGED") {
       setNotice((current) => nextNotice(current, event));
-      onRefreshRef.current?.();
     }
   }, [client, result.data]);
 

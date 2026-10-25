@@ -16,19 +16,14 @@ export const RECONNECT_EVENT = "releasecheck:reconnect";
 const sseClient = createSSEClient({
   url: graphqlUrl,
   on: {
-    connected: () => {
-      if (typeof window === "undefined") {
+    connected: (reconnected) => {
+      if (!reconnected || typeof window === "undefined") {
         return;
       }
-      if (sseClientHasConnected) {
-        window.dispatchEvent(new Event(RECONNECT_EVENT));
-      }
-      sseClientHasConnected = true;
+      window.dispatchEvent(new Event(RECONNECT_EVENT));
     },
   },
 });
-
-let sseClientHasConnected = false;
 
 function withoutTypenames(value: unknown): unknown {
   if (Array.isArray(value)) {
