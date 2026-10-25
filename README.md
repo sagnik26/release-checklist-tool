@@ -162,7 +162,7 @@ A refetch is `network-only`. The list uses the mounted query, `revalidateRelease
 | Notes save succeeds | Saving tab, after `updateReleaseNotes`. Its own event is ignored | Left as it is. Notes do not change status | Explicit read | No |
 | `NOTES_CHANGED` | Every other tab, after commit | Left as it is | Refetch | Yes. A dirty draft is kept |
 | Delete from the list | Saving tab, after confirm. Its own event is ignored | That row is hidden locally. The query is not refetched. `deleteRelease` returns a boolean, so urql does not drop the list | Left as it is | No |
-| Delete from the form | Saving tab, after confirm, then it returns home | Left as it is. The row can still be in the cached list | Explicit read, which comes back empty | No |
+| Delete from the form | Saving tab, after confirm, then it returns home. Its own event is ignored | That row is hidden locally, same as a delete from the list. The query is not refetched | Explicit read, which comes back empty | No |
 | `RELEASE_DELETED` | Every other tab, after commit | Refetch | Refetch. An open form shows that the release no longer exists | No |
 | Subscription retries | Only after a dropped connection reconnects, and only while a form is open. Opening a page does not count | Left as it is | The open release is refetched | No |
 | Open a page again | Same tab, no new event | Cache hit | Cache hit for that id | No |

@@ -17,7 +17,7 @@ import { StepCheckbox } from "./StepCheckbox";
 import { getClientId } from "../lib/clientId";
 import { confirmDelete } from "../lib/confirm-delete";
 import { cacheReleaseDetail, registerReleaseDetail } from "../lib/release-detail";
-import { revalidateReleaseList } from "../lib/release-list";
+import { hideRelease, revalidateReleaseList } from "../lib/release-list";
 import { STEP_DEFINITIONS } from "../lib/steps";
 import { useRemoteChanges } from "../lib/useRemoteChanges";
 
@@ -255,7 +255,8 @@ export function ReleaseForm() {
       return;
     }
     const deleted = await deleteRelease({ id: releaseId, clientId: getClientId() });
-    if (!deleted.error) {
+    if (!deleted.error && deleted.data?.deleteRelease === true) {
+      hideRelease(releaseId);
       cacheReleaseDetail(client, releaseId);
     }
     router.push("/");
