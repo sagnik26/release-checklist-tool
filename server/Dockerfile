@@ -6,6 +6,7 @@ ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
 RUN corepack enable && corepack prepare yarn@4.9.2 --activate
 
 COPY package.json yarn.lock .yarnrc.yml ./
+COPY .yarn/releases .yarn/releases
 COPY server/package.json server/package.json
 COPY web/package.json web/package.json
 RUN yarn install --immutable

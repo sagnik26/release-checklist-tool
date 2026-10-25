@@ -146,6 +146,8 @@ The API is a native Node service on Render, without Docker. Build with `yarn wor
 
 The web app is a static Next.js export. On Vercel, set the root directory to `web`. `NEXT_PUBLIC_GRAPHQL_URL` must be the public API URL ending in `/graphql`. Set `CORS_ORIGIN` on the API to that Vercel origin.
 
+Vercel’s default `yarn` is 1.22, which ignores these workspaces and does not install `next`. `.yarnrc.yml` points `yarnPath` at the committed Yarn 4.9.2 binary in `.yarn/releases`, so that install hands off to Yarn 4. Keep that file in git.
+
 The database stays on Supabase. Point `DATABASE_URL` at the session pooler and run `yarn workspace server migrate:up` against it once.
 
 Production URLs are not recorded in this repo.
@@ -175,8 +177,8 @@ The API reloads when its TypeScript changes. The Next.js dev server is the secon
 ### `yarn` reports a packageManager mismatch
 
 **Symptom:** Yarn 1.22 refuses to run because `packageManager` is `yarn@4.9.2`.  
-**Cause:** The global `yarn` binary is Yarn 1.  
-**Fix:** `corepack enable`, then run the commands again. Or call `corepack yarn` directly.
+**Cause:** Yarn 1 did not follow `yarnPath` to the committed Yarn 4 binary.  
+**Fix:** Confirm `.yarn/releases/yarn-4.9.2.cjs` exists and `.yarnrc.yml` points `yarnPath` at it. `corepack enable` also selects Yarn 4.
 
 ### `docker compose up --build` says `unknown flag: --build`
 

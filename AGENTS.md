@@ -64,7 +64,7 @@ Each workspace has its own `.env.example` with placeholder values. Never commit 
 releasecheck/
   package.json             root: private, workspaces ["web", "server"], shared scripts
   yarn.lock
-  .yarnrc.yml              nodeLinker: node-modules
+  .yarnrc.yml              nodeLinker: node-modules, yarnPath to Yarn 4.9.2
   .nvmrc
   .gitignore
   AGENTS.md
