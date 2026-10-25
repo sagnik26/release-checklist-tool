@@ -1,0 +1,11 @@
+node_modules
+.yarn/cache
+.yarn/install-state.gz
+dist
+web/out
+web/.next
+.env
+.env.local
+server/.env
+web/.env.local
+*.tsbuildinfo

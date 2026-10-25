@@ -1,0 +1,16 @@
+{
+  "name": "releasecheck",
+  "private": true,
+  "packageManager": "yarn@4.9.2",
+  "workspaces": [
+    "web",
+    "server"
+  ],
+  "scripts": {
+    "start": "yarn workspaces foreach -A -p --interlaced --include server --include web run dev",
+    "dev:up": "docker-compose up --build",
+    "dev:down": "docker-compose down",
+    "test": "yarn workspace server test",
+    "build": "yarn workspaces foreach -A --include server --include web run build"
+  }
+}

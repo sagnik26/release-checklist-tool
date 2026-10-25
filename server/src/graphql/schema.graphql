@@ -1,0 +1,71 @@
+enum StepKey {
+  merged_prs
+  changelog_updated
+  tests_passing
+  github_release_created
+  deployed_demo
+  tested_demo
+  deployed_production
+}
+
+enum ReleaseStatus {
+  PLANNED
+  ONGOING
+  DONE
+}
+
+enum ChangeKind {
+  STEP_CHANGED
+  NOTES_CHANGED
+  RELEASE_CREATED
+  RELEASE_DELETED
+}
+
+type Step {
+  key: StepKey!
+  label: String!
+  completed: Boolean!
+}
+
+type Release {
+  id: ID!
+  name: String!
+  dueDate: String!
+  notes: String
+  status: ReleaseStatus!
+  steps: [Step!]!
+}
+
+type ReleaseChange {
+  releaseId: ID!
+  kind: ChangeKind!
+  stepKey: StepKey
+  completed: Boolean
+  sourceClientId: String!
+}
+
+type Query {
+  releases: [Release!]!
+  release(id: ID!): Release
+}
+
+type Mutation {
+  createRelease(
+    name: String!
+    dueDate: String!
+    notes: String
+    clientId: String!
+  ): Release!
+  setStepCompleted(
+    releaseId: ID!
+    stepKey: StepKey!
+    completed: Boolean!
+    clientId: String!
+  ): Release!
+  updateReleaseNotes(id: ID!, notes: String, clientId: String!): Release!
+  deleteRelease(id: ID!, clientId: String!): Boolean!
+}
+
+type Subscription {
+  releaseChanged: ReleaseChange!
+}
